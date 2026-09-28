@@ -1,3 +1,7 @@
 {
-  "app": "python app.py"
+  "app": "python app.py",
+  "context": {
+    "snowflake_iam_user_arn": "arn:aws:iam::046374119072:user/9bp02000-s",
+    "snowflake_external_id": "VXC65625_SFCRole=5_kiNe6Wxds2YHhVTnOpFA8G4WoCw="
+  }
 }
