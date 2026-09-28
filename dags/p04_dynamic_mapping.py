@@ -32,8 +32,8 @@ def p04_dynamic_mapping():
         sizes = list(sizes)
         print(f"{len(sizes)} files, {sum(sizes)} bytes in total")
 
-    sizes = process_file.partial(bucket=DATA_LAKE_BUCKET).expand(key=list_files())
-    summarize(sizes)
+    # sizes = process_file.partial(bucket=DATA_LAKE_BUCKET).expand(key=list_files())
+    # summarize(sizes)
 
     files = list_files()
     size = process_file.partial(bucket=DATA_LAKE_BUCKET).expand(key=files)
