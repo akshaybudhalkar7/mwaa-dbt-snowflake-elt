@@ -71,7 +71,9 @@ def insurance_elt():
         return result.returncode == 0
 
 
-    extract_to_s3()
+    expected_counts = extract_to_s3()
+    
+    check_snow_data(expected_counts)
 
 
 insurance_elt()
