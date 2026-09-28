@@ -1,13 +1,13 @@
-# Practice DAG: the smallest possible TaskFlow DAG.
+# Practice DAG: the smallest possible TaskFlow DAG (Airflow 3 version).
 # Everything at the top level of this file (imports, code outside tasks) runs on EVERY parse
 # (~every 30s by the DAG processor), so keep it light - no API calls or DB queries up here.
 
 import sys
 from datetime import datetime
 
-# TaskFlow API (Airflow 2.0+): plain Python functions become a DAG and tasks via decorators.
-# Airflow 3 moves these to: from airflow.sdk import dag, task
-from airflow.decorators import dag, task
+# Airflow 3: DAG authoring imports come from the Task SDK.
+# Airflow 2 equivalent: from airflow.decorators import dag, task
+from airflow.sdk import dag, task
 
 @dag(
     schedule=None,                     # no automatic runs; only runs when triggered manually
@@ -15,6 +15,7 @@ from airflow.decorators import dag, task
     start_date=datetime(2026, 9, 1),   # first date the DAG may run for; always a FIXED date,
                                        # never datetime.now() (it changes on every parse)
     catchup = False,                   # don't create runs for past intervals since start_date
+                                       # (Airflow 3 default is already False; Airflow 2 default was True)
     tags = ["smoke"]                   # label for filtering in the Airflow UI
 )
 
