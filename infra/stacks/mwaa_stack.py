@@ -1,10 +1,15 @@
+import hashlib
+from pathlib import Path
+
 from aws_cdk import CfnOutput, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_mwaa as mwaa
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_deployment as s3deploy
+from aws_cdk import custom_resources as cr
 from constructs import Construct
+
 
 class MwaaStack(Stack):
     """MWAA environment: uploads dags/config to S3, execution role, security group, environment.
@@ -48,6 +53,15 @@ class MwaaStack(Stack):
             destination_bucket=mwaa_bucket,
             prune=False,
             **config_deploy_kwargs,
+        )
+
+        # MWAA only re-installs requirements / re-runs the startup script when the environment
+        # points to a NEW S3 object version. Look up the latest version after each upload.
+        requirements_version = self._latest_object_version(
+            "RequirementsVersion", mwaa_bucket, f"{s3_prefix}requirements.txt", config_dir, config_deploy
+        )
+        startup_version = self._latest_object_version(
+            "StartupScriptVersion", mwaa_bucket, f"{s3_prefix}startup.sh", config_dir, config_deploy
         )
 
         # --- 2. Security group: MWAA components talk to each other over a self-referencing rule ---
@@ -130,7 +144,9 @@ class MwaaStack(Stack):
             source_bucket_arn=mwaa_bucket.bucket_arn,
             dag_s3_path=f"{s3_prefix}dags",
             requirements_s3_path=f"{s3_prefix}requirements.txt",
+            requirements_s3_object_version=requirements_version,
             startup_script_s3_path=f"{s3_prefix}startup.sh",
+            startup_script_s3_object_version=startup_version,
             webserver_access_mode="PUBLIC_ONLY",
             network_configuration=mwaa.CfnEnvironment.NetworkConfigurationProperty(
                 security_group_ids=[sg.security_group_id],
@@ -152,3 +168,29 @@ class MwaaStack(Stack):
 
         CfnOutput(self, "AirflowUiUrl", value=f"https://{environment.attr_webserver_url}")
         CfnOutput(self, "ExecutionRoleArn", value=role.role_arn)
+
+    def _latest_object_version(
+        self, construct_id: str, bucket: s3.IBucket, key: str, local_dir: str, deployment: Construct
+    ) -> str:
+        """Return the S3 VersionId of `key` after `deployment` uploaded it.
+
+        The local file's hash is used as the physical id, so CloudFormation re-runs the
+        lookup (and MWAA gets updated) only when the file content actually changes.
+        """
+        file_hash = hashlib.sha256((Path(local_dir) / Path(key).name).read_bytes()).hexdigest()[:16]
+        lookup = cr.AwsCustomResource(
+            self,
+            construct_id,
+            on_update=cr.AwsSdkCall(  # also used for create
+                service="S3",
+                action="headObject",
+                parameters={"Bucket": bucket.bucket_name, "Key": key},
+                physical_resource_id=cr.PhysicalResourceId.of(file_hash),
+            ),
+            # from_sdk_calls would generate "s3:HeadObject", which isn't a real IAM action
+            policy=cr.AwsCustomResourcePolicy.from_statements(
+                [iam.PolicyStatement(actions=["s3:GetObject", "s3:GetObjectVersion"], resources=[bucket.arn_for_objects(key)])]
+            ),
+        )
+        lookup.node.add_dependency(deployment)
+        return lookup.get_response_field("VersionId")
