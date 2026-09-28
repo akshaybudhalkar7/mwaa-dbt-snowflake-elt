@@ -23,3 +23,24 @@ jobs:
 
       - name: Smoke test OIDC
         run: aws sts get-caller-identity
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CDK
+        run: |
+          npm install -g aws-cdk
+          pip install -r infra/requirements.txt
+
+      - name: CDK diff
+        working-directory: infra
+        run: cdk diff
+
+      - name: CDK deploy
+        working-directory: infra
+        run: cdk deploy --all --require-approval never
