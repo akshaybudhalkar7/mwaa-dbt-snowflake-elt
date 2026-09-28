@@ -17,7 +17,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::656559336744:role/airbnb-pipeline-snowflake-github-actions
+          role-to-assume: arn:aws:iam::656559336744:role/test_oidc
           role-session-name: gha-${{ github.run_id }}
           aws-region: us-east-1
 
