@@ -5,12 +5,16 @@ Step 2 (this version): extract only. Load and dbt tasks are added in the next st
 
 import io
 from datetime import timedelta
+from pathlib import Path
 
 import pendulum
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.sdk import dag, task
 
-from insurance.config import DATA_LAKE_BUCKET, RAW_PREFIX
+from insurance.config import DATA_LAKE_BUCKET, DBT_VENV_PYTHON, RAW_PREFIX
+
+# Runs with the dbt venv's Python (it has the Snowflake connector); lives next to this DAG
+CHECK_SCRIPT = Path(__file__).parent / "insurance" / "check_raw_loaded.py"
 
 
 @dag(
@@ -48,6 +52,24 @@ def insurance_elt():
             print(f"wrote {len(rows)} rows -> s3://{DATA_LAKE_BUCKET}/{key}")
 
         return row_counts  # small XCom: counts only, never the data itself
+
+    @task.sensor(poke_interval=30, timeout=15 * 60, mode = "reschedule")
+    def check_snow_data(expected_counts:dict, ds=None) -> bool:
+        import json
+        import subprocess
+
+        result =subprocess.run(
+            [DBT_VENV_PYTHON, str(CHECK_SCRIPT), ds, json.dumps(expected_counts)],
+            capture_output=True,
+            text=True,
+        )
+
+        print(result.stdout, result.stderr)
+
+        if result.returncode not in (0, 3):
+            raise RuntimeError(f"row-count check failed (exit code {result.returncode})")
+        return result.returncode == 0
+
 
     extract_to_s3()
 

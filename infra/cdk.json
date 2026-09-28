@@ -2,6 +2,7 @@
   "app": "python app.py",
   "context": {
     "snowflake_iam_user_arn": "arn:aws:iam::046374119072:user/9bp02000-s",
-    "snowflake_external_id": "VXC65625_SFCRole=5_kiNe6Wxds2YHhVTnOpFA8G4WoCw="
+    "snowflake_external_id": "VXC65625_SFCRole=5_kiNe6Wxds2YHhVTnOpFA8G4WoCw=",
+    "snowflake_pipe_sqs_arn": "arn:aws:sqs:us-east-1:046374119072:sf-snowpipe-AIDAQVTA442QLMMN7VSJG-KC12p0vQoGvAAe-rlgb7pA"
   }
 }

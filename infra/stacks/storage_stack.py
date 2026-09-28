@@ -1,6 +1,8 @@
 from aws_cdk import CfnOutput, RemovalPolicy, Stack
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_s3_notifications as s3n
+from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
 
@@ -56,6 +58,16 @@ class StorageStack(Stack):
             assumed_by=snowflake_principal,
         )
         self.data_lake_bucket.grant_read(self.snowflake_s3_role, "raw/*")
+
+        # Snowpipe auto-ingest: new file under raw/ -> Snowflake's SQS queue -> pipe loads it.
+        # Queue ARN comes from SHOW PIPES (notification_channel), passed as CDK context.
+        pipe_queue_arn = self.node.try_get_context("snowflake_pipe_sqs_arn")
+        if pipe_queue_arn:
+            self.data_lake_bucket.add_event_notification(
+                s3.EventType.OBJECT_CREATED,
+                s3n.SqsDestination(sqs.Queue.from_queue_arn(self, "SnowpipeQueue", pipe_queue_arn)),
+                s3.NotificationKeyFilter(prefix="raw/"),
+            )
 
         CfnOutput(self, "DataLakeBucketName", value=self.data_lake_bucket.bucket_name)
         CfnOutput(self, "SnowflakeS3RoleArn", value=self.snowflake_s3_role.role_arn)
