@@ -219,3 +219,6 @@ __marimo__/
 
 # CDK
 cdk.out/
+
+# dbt local files
+.user.yml

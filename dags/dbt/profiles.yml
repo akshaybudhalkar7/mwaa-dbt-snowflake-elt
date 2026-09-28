@@ -1,0 +1,28 @@
+insurance:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: snowflake
+      account: XJVCLEX-NNC43628
+      user: "{{ env_var('SNOWFLAKE_DEV_USER') }}"
+      authenticator: snowflake_jwt
+      private_key_path: "{{ env_var('SNOWFLAKE_DEV_PRIVATE_KEY_PATH') }}"
+      role: INS_TRANSFORMER
+      warehouse: INS_WH
+      database: INS_ANALYTICS
+      schema: dev_akshay
+      threads: 4
+      query_tag: dbt_insurance_dev
+
+    prod:
+      type: snowflake
+      account: XJVCLEX-NNC43628
+      user: INS_MWAA_SVC
+      authenticator: workload_identity
+      workload_identity_provider: AWS
+      role: INS_TRANSFORMER
+      warehouse: INS_WH
+      database: INS_ANALYTICS
+      schema: core
+      threads: 4
+      query_tag: dbt_insurance_prod

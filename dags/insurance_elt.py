@@ -1,6 +1,6 @@
-"""Insurance ELT: policy admin extract -> S3 (Parquet) -> Snowflake -> dbt.
+"""Insurance ELT: policy admin extract -> S3 (Parquet) -> Snowpipe -> Snowflake raw -> dbt.
 
-Step 2 (this version): extract only. Load and dbt tasks are added in the next steps.
+extract_to_s3 -> check_snow_data (sensor: loaded rows == extracted rows) -> dbt_build
 """
 
 import io
@@ -15,6 +15,10 @@ from insurance.config import DATA_LAKE_BUCKET, DBT_VENV_PYTHON, RAW_PREFIX
 
 # Runs with the dbt venv's Python (it has the Snowflake connector); lives next to this DAG
 CHECK_SCRIPT = Path(__file__).parent / "insurance" / "check_raw_loaded.py"
+
+# dbt project ships inside dags/ (MWAA only syncs dags/ to the workers); dbt runs from its own venv
+DBT_PROJECT_DIR = Path(__file__).parent / "dbt"
+DBT_BIN = str(Path(DBT_VENV_PYTHON).parent / "dbt")
 
 
 @dag(
@@ -71,9 +75,22 @@ def insurance_elt():
         return result.returncode == 0
 
 
+    # dbt build = run models + snapshots + tests, in dependency order; a failed test stops downstream.
+    # - DBT_TARGET=prod -> profiles.yml "prod" output: INS_MWAA_SVC via workload identity (no secrets)
+    # - append_env=True keeps the worker's env (AWS credentials for workload identity, PATH, ...)
+    # - target/ and logs/ go to /tmp: the synced dags/ folder must not be written to
+    # - business_date = ds -> the snapshot records that day's state (backfills build SCD2 in order)
+    @task.bash(env={"DBT_TARGET": "prod"}, append_env=True)
+    def dbt_build() -> str:
+        return (
+            f"{DBT_BIN} build"
+            f" --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROJECT_DIR}"
+            " --target-path /tmp/dbt/target --log-path /tmp/dbt/logs"
+            """ --vars '{"business_date": "{{ ds }}"}'"""
+        )
+
     expected_counts = extract_to_s3()
-    
-    check_snow_data(expected_counts)
+    check_snow_data(expected_counts) >> dbt_build()
 
 
 insurance_elt()

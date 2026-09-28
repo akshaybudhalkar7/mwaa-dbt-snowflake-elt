@@ -1,0 +1,42 @@
+version: 2
+
+# Data tests run as part of "dbt build": a failing test stops everything downstream of it.
+models:
+  - name: stg_policies
+    columns:
+      - name: policy_id
+        data_tests: [unique, not_null]
+      - name: product_line
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['AUTO', 'HOME', 'LIFE']
+
+  - name: stg_claims
+    columns:
+      - name: claim_id
+        data_tests: [not_null]
+      - name: policy_id
+        data_tests:
+          - not_null
+          - relationships:  # every claim must point to a known policy (referential integrity)
+              arguments:
+                to: ref('stg_policies')
+                field: policy_id
+              config:
+                severity: warn  # policies issued before our first extract date aren't loaded
+      - name: claim_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['OPEN', 'APPROVED', 'REJECTED', 'PAID']
+
+  - name: stg_policyholders
+    columns:
+      - name: policyholder_id
+        data_tests: [not_null]
+      - name: risk_tier
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['LOW', 'MEDIUM', 'HIGH']
