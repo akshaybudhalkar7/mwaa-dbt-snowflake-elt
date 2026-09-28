@@ -1,4 +1,5 @@
 from aws_cdk import CfnOutput, RemovalPolicy, Stack
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
@@ -35,5 +36,27 @@ class StorageStack(Stack):
             **common,
         )
 
+        # Role Snowflake assumes to read the data lake (used by the INS_S3_INT storage integration).
+        # Fixed name -> the ARN is known before the role exists, so the Snowflake SQL can reference it.
+        # Trust needs 2 values from Snowflake's "DESC INTEGRATION INS_S3_INT", passed as CDK context
+        # (cdk.json). Until they're set, the role trusts only this account (a harmless placeholder).
+        sf_user_arn = self.node.try_get_context("snowflake_iam_user_arn")
+        sf_external_id = self.node.try_get_context("snowflake_external_id")
+        if sf_user_arn and sf_external_id:
+            snowflake_principal = iam.ArnPrincipal(sf_user_arn).with_conditions(
+                {"StringEquals": {"sts:ExternalId": sf_external_id}}
+            )
+        else:
+            snowflake_principal = iam.AccountRootPrincipal()
+
+        self.snowflake_s3_role = iam.Role(
+            self,
+            "SnowflakeS3ReadRole",
+            role_name="mwaa-dbt-elt-snowflake-s3-read",
+            assumed_by=snowflake_principal,
+        )
+        self.data_lake_bucket.grant_read(self.snowflake_s3_role, "raw/*")
+
         CfnOutput(self, "DataLakeBucketName", value=self.data_lake_bucket.bucket_name)
+        CfnOutput(self, "SnowflakeS3RoleArn", value=self.snowflake_s3_role.role_arn)
         CfnOutput(self, "MwaaBucketName", value=self.mwaa_bucket.bucket_name)
