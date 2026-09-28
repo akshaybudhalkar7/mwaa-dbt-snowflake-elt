@@ -6,11 +6,12 @@ from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_deployment as s3deploy
 from constructs import Construct
 
-ENV_NAME = "mwaa-dbt-elt"
-
-
 class MwaaStack(Stack):
-    """MWAA environment: uploads dags/config to S3, execution role, security group, environment."""
+    """MWAA environment: uploads dags/config to S3, execution role, security group, environment.
+
+    Reusable for blue/green: each environment gets its own name, Airflow version,
+    local source folders and S3 prefix inside the shared MWAA bucket.
+    """
 
     def __init__(
         self,
@@ -20,6 +21,11 @@ class MwaaStack(Stack):
         vpc: ec2.IVpc,
         mwaa_bucket: s3.IBucket,
         data_lake_bucket: s3.IBucket,
+        env_name: str,
+        airflow_version: str,
+        dags_dir: str,
+        config_dir: str,
+        s3_prefix: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -28,18 +34,20 @@ class MwaaStack(Stack):
         dags_deploy = s3deploy.BucketDeployment(
             self,
             "DeployDags",
-            sources=[s3deploy.Source.asset("../dags")],
+            sources=[s3deploy.Source.asset(dags_dir)],
             destination_bucket=mwaa_bucket,
-            destination_key_prefix="dags",
+            destination_key_prefix=f"{s3_prefix}dags",
             prune=True,
         )
-        # requirements.txt + startup.sh at bucket root; prune=False so it never deletes dags/
+        # requirements.txt + startup.sh; prune=False so it never deletes dags/ or other envs' files
+        config_deploy_kwargs = {"destination_key_prefix": s3_prefix} if s3_prefix else {}
         config_deploy = s3deploy.BucketDeployment(
             self,
             "DeployConfig",
-            sources=[s3deploy.Source.asset("../mwaa")],
+            sources=[s3deploy.Source.asset(config_dir)],
             destination_bucket=mwaa_bucket,
             prune=False,
+            **config_deploy_kwargs,
         )
 
         # --- 2. Security group: MWAA components talk to each other over a self-referencing rule ---
@@ -60,7 +68,7 @@ class MwaaStack(Stack):
         role.add_to_policy(
             iam.PolicyStatement(
                 actions=["airflow:PublishMetrics"],
-                resources=[f"arn:aws:airflow:{self.region}:{self.account}:environment/{ENV_NAME}"],
+                resources=[f"arn:aws:airflow:{self.region}:{self.account}:environment/{env_name}"],
             )
         )
         role.add_to_policy(
@@ -74,7 +82,7 @@ class MwaaStack(Stack):
                     "logs:GetLogGroupFields",
                     "logs:GetQueryResults",
                 ],
-                resources=[f"arn:aws:logs:{self.region}:{self.account}:log-group:airflow-{ENV_NAME}-*"],
+                resources=[f"arn:aws:logs:{self.region}:{self.account}:log-group:airflow-{env_name}-*"],
             )
         )
         role.add_to_policy(
@@ -113,16 +121,16 @@ class MwaaStack(Stack):
         environment = mwaa.CfnEnvironment(
             self,
             "Environment",
-            name=ENV_NAME,
-            airflow_version="2.10.3",
+            name=env_name,
+            airflow_version=airflow_version,
             environment_class="mw1.small",
             min_workers=1,
             max_workers=2,
             execution_role_arn=role.role_arn,
             source_bucket_arn=mwaa_bucket.bucket_arn,
-            dag_s3_path="dags",
-            requirements_s3_path="requirements.txt",
-            startup_script_s3_path="startup.sh",
+            dag_s3_path=f"{s3_prefix}dags",
+            requirements_s3_path=f"{s3_prefix}requirements.txt",
+            startup_script_s3_path=f"{s3_prefix}startup.sh",
             webserver_access_mode="PUBLIC_ONLY",
             network_configuration=mwaa.CfnEnvironment.NetworkConfigurationProperty(
                 security_group_ids=[sg.security_group_id],

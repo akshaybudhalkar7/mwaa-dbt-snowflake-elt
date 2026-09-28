@@ -32,6 +32,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Airflow 3 compatibility scan
+        run: |
+          pip install ruff
+          echo "--- Airflow 2 DAGs (report only) ---"
+          ruff check --preview --select AIR --exit-zero dags
+          echo "--- Airflow 3 DAGs (must pass) ---"
+          ruff check --preview --select AIR dags_v3
+
       - name: Install CDK
         run: |
           npm install -g aws-cdk
