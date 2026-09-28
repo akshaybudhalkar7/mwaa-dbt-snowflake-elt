@@ -25,7 +25,7 @@ def p02_dependencies():
         ]
 
 
-    @task
+    @task(multiple_outputs=True)
     def transform(policies: list[dict]) -> dict:
         total = sum(p["premium"] for p in policies)
         return {"policy_count": len(policies), "Total_Premium": total}
