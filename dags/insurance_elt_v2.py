@@ -60,19 +60,6 @@ def insurance_elt_v2():
         print(request)
         return json.dumps(request)  # Lambda payload must be a JSON string
 
-    request = plan_request()
-
-    invoke_extractor = LambdaInvokeFunctionOperator(
-        task_id="invoke_extractor",
-        function_name=EXTRACTOR_FUNCTION,
-        payload=request,
-        invocation_type="RequestResponse",  # synchronous: the task fails if the Lambda fails
-        # botocore's default read timeout is 60s but the Lambda may run 5 min. Without this the
-        # call "times out" while the Lambda keeps running, Airflow retries -> 2 extracts at once.
-        botocore_config={"read_timeout": 330, "connect_timeout": 10, "retries": {"total_max_attempts": 1}},
-    )
-
-
     @task.sensor(poke_interval=30, timeout=10 * 60, mode="reschedule")
     def wait_manifest(request: str) -> PokeReturnValue:
         req = json.loads(request)
@@ -86,9 +73,6 @@ def insurance_elt_v2():
         print({entity: info["row_count"] for entity, info in manifest["entities"].items()})
         # is_done + xcom_value: the sensor finishes AND hands the manifest to the next tasks
         return PokeReturnValue(is_done=True, xcom_value=manifest)
-
-    manifest = wait_manifest(request)
-    invoke_extractor >> manifest
 
     # Source-to-target check: rows Snowpipe loaded from THIS manifest's files == manifest counts.
     # exit 0 = done, 3 = Snowpipe still loading (poke again), anything else = real error
@@ -107,8 +91,6 @@ def insurance_elt_v2():
             raise RuntimeError(f"reconcile failed (exit code {result.returncode})")
         return result.returncode == 0
 
-    reconciled = reconcile(manifest)
-
 
     # Freshness gate: is the SOURCE itself stale? Reconcile passes on "0 expected = 0 loaded";
     # if the API silently stops sending changes, only this catches it. error_after -> exit 1 -> stop.
@@ -121,10 +103,6 @@ def insurance_elt_v2():
     @task.bash(env={"DBT_TARGET": "prod"}, append_env=True)
     def dbt_build() -> str:
         return f"{DBT_BIN} build --select source:policy_admin_api+{DBT_ARGS}"
-
-    freshness = freshness_gate()
-    build = dbt_build()
-    reconciled >> freshness >> build
 
     # The ONLY place the watermark moves - and only if every task above succeeded
     # (default trigger rule all_success). Safe to re-run: MERGE + GREATEST, never backwards.
@@ -141,9 +119,6 @@ def insurance_elt_v2():
         if result.returncode != 0:
             raise RuntimeError(f"advance failed (exit code {result.returncode})")
 
-    advanced = advance_watermark(manifest)
-    build >> advanced
-
     # Runs only when a task above FAILED (trigger rule one_failed): marks the run FAILED in
     # EXTRACT_RUNS. Watermarks are untouched -> the next run re-pulls the same window.
     @task(trigger_rule="one_failed", retries=0)
@@ -159,9 +134,29 @@ def insurance_elt_v2():
         )
         print(result.stdout, result.stderr)
 
-    [invoke_extractor, manifest, reconciled, freshness, build, advanced] >> record_failure(request)
+    # ------------------------------------------------------------------ flow
+    # Calling a @task function creates the task; its XCom output feeds the next call
+    request = plan_request()
+    invoke_extractor = LambdaInvokeFunctionOperator(
+        task_id="invoke_extractor",
+        function_name=EXTRACTOR_FUNCTION,
+        payload=request,  # plan_request's XCom: frozen -> every retry sends the same window
+        invocation_type="RequestResponse",  # synchronous: the task fails if the Lambda fails
+        # botocore's default read timeout is 60s but the Lambda may run 5 min. Without this the
+        # call "times out" while the Lambda keeps running, Airflow retries -> 2 extracts at once.
+        botocore_config={"read_timeout": 330, "connect_timeout": 10, "retries": {"total_max_attempts": 1}},
+    )
+    manifest = wait_manifest(request)
+    reconciled = reconcile(manifest)
+    freshness = freshness_gate()
+    build = dbt_build()
+    advanced = advance_watermark(manifest)
+    failure = record_failure(request)
 
-
+    # Happy path, left to right: the watermark moves only if every step before it succeeded
+    request >> invoke_extractor >> manifest >> reconciled >> freshness >> build >> advanced
+    # Any failure on the way -> record it (trigger_rule="one_failed")
+    [invoke_extractor, manifest, reconciled, freshness, build, advanced] >> failure
 
 
 insurance_elt_v2()
