@@ -83,7 +83,7 @@ def insurance_elt():
     @task.bash(env={"DBT_TARGET": "prod"}, append_env=True)
     def dbt_build() -> str:
         return (
-            f"{DBT_BIN} build"
+            f"{DBT_BIN} build --select source:policy_admin+"  # v1 lineage only - never v2's models
             f" --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROJECT_DIR}"
             " --target-path /tmp/dbt/target --log-path /tmp/dbt/logs"
             """ --vars '{"business_date": "{{ ds }}"}'"""
