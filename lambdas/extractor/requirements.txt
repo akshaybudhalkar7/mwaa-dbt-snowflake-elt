@@ -1,0 +1,2 @@
+# boto3/botocore come with the Lambda Python runtime
+snowflake-connector-python>=4,<5
