@@ -14,7 +14,7 @@ Dates and timestamps are ISO strings; dbt staging casts them to proper types.
 """
 
 import random
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 from insurance.config import EPOCH
 
@@ -156,3 +156,32 @@ def generate_day(ds: str) -> dict[str, list[dict]]:
         "policies": policies_issued(day),
         "claims": claims_changed(day),
     }
+
+
+# ---------------------------------------------------------------- change feed (v2 API)
+# entity -> (daily extract function, the timestamp column the API filters on)
+FEEDS = {
+    "policyholders": (policyholders_snapshot, "updated_at"),
+    "policies": (policies_issued, "issued_at"),
+    "claims": (claims_changed, "updated_at"),
+}
+
+
+def changes_between(entity: str, since: datetime, until: datetime) -> list[dict]:
+    """Every version of <entity> whose change timestamp is in (since, until].
+
+    What a real "GET /<entity>?updated_since=..." API returns: a claim that changed twice
+    in the window comes back twice (two versions), unchanged records never come back.
+    """
+    extract, cursor = FEEDS[entity]
+    first_day = max(since.date(), date.fromisoformat(EPOCH))
+
+    rows = []
+    for day in _days(first_day, until.date()):
+        for row in extract(day):
+            changed_at = datetime.fromisoformat(row[cursor])
+            # Only rows that changed ON this day: the policyholder extract is a full snapshot,
+            # so unchanged customers repeat every day - they are not "changes"
+            if changed_at.date() == day and since < changed_at <= until:
+                rows.append(row)
+    return rows
