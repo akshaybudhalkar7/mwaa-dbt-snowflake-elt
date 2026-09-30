@@ -16,3 +16,7 @@ DBT_VENV_PYTHON = "/usr/local/airflow/dbt_venv/bin/python"
 # The "source system" starts here: policyholder history is rebuilt from this date,
 # so any business date always produces exactly the same data (idempotent re-runs).
 EPOCH = "2026-09-01"
+
+# ---- v2: watermark-driven API ingest
+EXTRACTOR_FUNCTION = "mwaa-dbt-elt-extractor"
+RAW_API_PREFIX = "raw/api"
