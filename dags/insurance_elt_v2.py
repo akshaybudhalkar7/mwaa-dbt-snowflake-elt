@@ -100,9 +100,10 @@ def insurance_elt_v2():
 
     # source:policy_admin_api+ = the v2 source and EVERYTHING downstream of it:
     # bronze -> silver -> snapshot -> gold, with their tests. v1 models are not touched.
+    # + dim_date: generated (no source), so it isn't downstream of the source - select it too.
     @task.bash(env={"DBT_TARGET": "prod"}, append_env=True)
     def dbt_build() -> str:
-        return f"{DBT_BIN} build --select source:policy_admin_api+{DBT_ARGS}"
+        return f"{DBT_BIN} build --select source:policy_admin_api+ dim_date{DBT_ARGS}"
 
     # The ONLY place the watermark moves - and only if every task above succeeded
     # (default trigger rule all_success). Safe to re-run: MERGE + GREATEST, never backwards.

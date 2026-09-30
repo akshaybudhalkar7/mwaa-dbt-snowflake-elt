@@ -1,0 +1,64 @@
+version: 2
+
+# Silver = typed + deduplicated. Tests guard the GRAIN (no duplicate keys) and the typed
+# columns: a wrong VARIANT path returns NULL silently, so not_null on keys catches typos.
+models:
+  - name: slv_policyholder_versions
+    description: Every version of every policyholder. Grain = (policyholder_id, updated_at).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [policyholder_id, updated_at]
+    columns:
+      - name: policyholder_id
+        data_tests: [not_null]
+      - name: updated_at
+        data_tests: [not_null]
+      - name: risk_tier
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['LOW', 'MEDIUM', 'HIGH']
+
+  - name: slv_policyholders
+    description: Current state per policyholder (latest version). Input of snap_api_policyholders.
+    columns:
+      - name: policyholder_id
+        data_tests: [unique, not_null]
+
+  - name: slv_policies
+    description: One row per policy (SCD1 - policies don't change after issue).
+    columns:
+      - name: policy_id
+        data_tests: [unique, not_null]
+      - name: policyholder_id
+        data_tests: [not_null]
+      - name: product_line
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['AUTO', 'HOME', 'LIFE']
+
+  - name: slv_claim_events
+    description: Every status change of every claim. Grain = (claim_id, updated_at).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [claim_id, updated_at]
+    columns:
+      - name: claim_id
+        data_tests: [not_null]
+      - name: updated_at
+        data_tests: [not_null]
+      - name: policy_id
+        data_tests:
+          - not_null
+          - relationships:   # every claim points to a policy we loaded
+              arguments:
+                to: ref('slv_policies')
+                field: policy_id
+      - name: claim_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['OPEN', 'APPROVED', 'REJECTED', 'PAID']

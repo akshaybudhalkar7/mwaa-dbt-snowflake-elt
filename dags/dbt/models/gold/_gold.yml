@@ -1,0 +1,182 @@
+version: 2
+
+# Gold = the star schema that BI / ML read. Every model has an ENFORCED CONTRACT: dbt checks
+# the model's columns and types before building, so a change that would break consumers
+# (renamed column, changed type) fails the build instead of silently reaching dashboards.
+# not_null constraints are enforced by Snowflake itself.
+
+models:
+  # ------------------------------------------------------------------ dimensions
+  - name: dim_date
+    description: Calendar, one row per day (2026-2028). Full refresh.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: date_key
+        data_type: number
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - {name: date_day, data_type: date}
+      - {name: calendar_year, data_type: number}
+      - {name: calendar_quarter, data_type: number}
+      - {name: calendar_month, data_type: number}
+      - {name: month_name, data_type: varchar}
+      - {name: day_of_month, data_type: number}
+      - {name: day_of_week, data_type: number}
+      - {name: day_name, data_type: varchar}
+      - {name: is_weekend, data_type: boolean}
+      - {name: month_start_date, data_type: date}
+
+  - name: dim_policyholder
+    description: Policyholder SCD Type 2 built from the version log. One row per version + unknown member (-1).
+    config:
+      contract: {enforced: true}
+    data_tests:
+      - scd2_contiguous_windows:
+          arguments:
+            key: policyholder_id
+      - scd2_one_current:
+          arguments:
+            key: policyholder_id
+    columns:
+      - name: policyholder_sk
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - {name: policyholder_id, data_type: number, constraints: [{type: not_null}]}
+      - {name: first_name, data_type: varchar}
+      - {name: last_name, data_type: varchar}
+      - {name: date_of_birth, data_type: date}
+      - {name: city, data_type: varchar}
+      - {name: state, data_type: varchar}
+      - {name: risk_tier, data_type: varchar}
+      - {name: valid_from, data_type: timestamp_ntz, constraints: [{type: not_null}]}
+      - {name: valid_to, data_type: timestamp_ntz, constraints: [{type: not_null}]}
+      - {name: is_current, data_type: boolean}
+
+  - name: dim_policyholder_snap
+    description: Policyholder SCD Type 2 built from the dbt snapshot (history starts at the first snapshot run).
+    config:
+      contract: {enforced: true}
+    data_tests:
+      - scd2_contiguous_windows:
+          arguments:
+            key: policyholder_id
+      - scd2_one_current:
+          arguments:
+            key: policyholder_id
+    columns:
+      - name: policyholder_sk
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - {name: policyholder_id, data_type: number, constraints: [{type: not_null}]}
+      - {name: first_name, data_type: varchar}
+      - {name: last_name, data_type: varchar}
+      - {name: date_of_birth, data_type: date}
+      - {name: city, data_type: varchar}
+      - {name: state, data_type: varchar}
+      - {name: risk_tier, data_type: varchar}
+      - {name: valid_from, data_type: timestamp_ntz, constraints: [{type: not_null}]}
+      - {name: valid_to, data_type: timestamp_ntz, constraints: [{type: not_null}]}
+      - {name: is_current, data_type: boolean}
+
+  - name: dim_policy
+    description: Policy SCD Type 1, one row per policy + unknown member (-1). Full refresh.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: policy_sk
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - {name: policy_id, data_type: varchar, constraints: [{type: not_null}]}
+      - {name: product_line, data_type: varchar}
+      - {name: policy_status, data_type: varchar}
+      - {name: effective_date, data_type: date}
+      - {name: expiration_date, data_type: date}
+      - {name: term_days, data_type: number}
+
+  # ------------------------------------------------------------------ facts
+  - name: fct_policies_written
+    description: Transaction fact, one row per policy issued. Full refresh.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: policy_id
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: policy_sk
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_policy'), field: policy_sk}}
+      - name: policyholder_sk
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_policyholder'), field: policyholder_sk}}
+      - name: issue_date_key
+        data_type: number
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_key}}
+      - name: effective_date_key
+        data_type: number
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_key}}
+      - {name: annual_premium, data_type: 'number(12,2)'}
+      - {name: issued_at, data_type: timestamp_ntz}
+
+  - name: fct_claims
+    description: >
+      Accumulating snapshot, one row per claim, updated as the claim moves
+      OPEN -> APPROVED/REJECTED -> PAID. Incremental MERGE on claim_id.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: claim_id
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: policy_sk
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_policy'), field: policy_sk}}
+      - name: policyholder_sk
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_policyholder'), field: policyholder_sk}}
+      - name: loss_date_key
+        data_type: number
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_key}}
+      - name: reported_date_key
+        data_type: number
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_key}}
+      # NULL until the milestone is reached (relationships ignores NULLs)
+      - name: approved_date_key
+        data_type: number
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_key}}
+      - name: rejected_date_key
+        data_type: number
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_key}}
+      - name: paid_date_key
+        data_type: number
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_date'), field: date_key}}
+      - name: current_status
+        data_type: varchar
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['OPEN', 'APPROVED', 'REJECTED', 'PAID']
+      - {name: claim_amount, data_type: 'number(12,2)'}
+      - {name: days_to_settle, data_type: number}
+      - {name: last_updated_at, data_type: timestamp_ntz}
+      - {name: last_loaded_at, data_type: timestamp_ltz}
