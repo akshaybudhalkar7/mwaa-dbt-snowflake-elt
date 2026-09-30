@@ -1,8 +1,8 @@
 name: deploy
 
+# Manual only: the AWS stacks are torn down (teardown.yml) to stop MWAA/NAT cost.
+# Re-enable the push trigger to go back to deploy-on-merge.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

@@ -1,0 +1,64 @@
+name: teardown
+
+# Destroys every Elt-* stack (MWAA, NAT/VPC, Lambdas, S3 buckets incl. data) to stop AWS cost.
+# Code stays in the repo; run deploy.yml to bring it all back.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to delete all Elt-* stacks'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  teardown:
+    if: inputs.confirm == 'destroy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::656559336744:role/test_oidc
+          role-session-name: gha-teardown-${{ github.run_id }}
+          aws-region: us-east-1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CDK
+        run: |
+          npm install -g aws-cdk
+          pip install -r infra/requirements.txt
+
+      # CDK orders it by dependency: Mwaa -> Ingest/Network -> Storage
+      - name: CDK destroy
+        working-directory: infra
+        run: cdk destroy --all --force
+
+      # MWAA creates its CloudWatch log groups itself, outside CloudFormation
+      - name: Delete MWAA log groups
+        run: |
+          for lg in $(aws logs describe-log-groups --log-group-name-prefix airflow-mwaa-dbt-elt \
+                        --query "logGroups[].logGroupName" --output text); do
+            echo "deleting $lg"
+            aws logs delete-log-group --log-group-name "$lg"
+          done
+
+      - name: Verify nothing billable is left
+        run: |
+          aws cloudformation list-stacks \
+            --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE DELETE_FAILED \
+            --query "StackSummaries[?starts_with(StackName, 'Elt-')].[StackName,StackStatus]" --output text
+          aws mwaa list-environments --output text
+          aws ec2 describe-nat-gateways --filter Name=state,Values=available,pending,deleting \
+            --query "NatGateways[].[NatGatewayId,State]" --output text
+          aws ec2 describe-addresses --query "Addresses[].[PublicIp,AllocationId]" --output text
