@@ -1,0 +1,32 @@
+version: 2 
+
+sources:
+    - name: policy_admin_api
+      description: Policy admin REST API (v2) change feed pulled by the extractor Lambda since the watermark,landed as NDJSON in S3 and loaded by Snowpipe as VARIANT (one row per record version).
+      database: INS_RAW
+      schema: API
+      tables:
+      # Freshness = age of the newest SOURCE change (not our load time): if the API stops
+      # sending changes, this goes stale even though every load "succeeds" with 0 rows.
+      - name: policyholders
+        description:  Customer versions (initial state + every city / risk tier change).
+        config:
+          loaded_at_field: "RECORD:updated_at::timestamp_ntz"
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 48, period: hour}
+      - name: policies
+        description: Policies as issued (never change after issue).
+        config:
+          loaded_at_field: "RECORD:issued_at::timestamp_ntz"
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 48, period: hour}
+
+      - name: claims
+        description: Claim versions (reported, then status changes OPEN -> APPROVED/REJECTED -> PAID).
+        config:
+          loaded_at_field: "RECORD:updated_at::timestamp_ntz"
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 48, period: hour}

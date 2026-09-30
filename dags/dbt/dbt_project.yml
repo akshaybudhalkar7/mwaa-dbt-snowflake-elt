@@ -17,6 +17,15 @@ models:
     marts:
       +schema: marts
       +materialized: table
+  # ---- v2 medallion layers (API ingest)
+    bronze:
+      +schema: bronze
+      +materialized: view
+    silver:
+      +schema: silver  
+    gold:
+      +schema: gold
+      +materialized: table
 
 snapshots:
   insurance:
