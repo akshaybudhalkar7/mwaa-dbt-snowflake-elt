@@ -4,6 +4,7 @@ from pathlib import Path
 from aws_cdk import CfnOutput, Stack
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_mwaa as mwaa
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_deployment as s3deploy
@@ -31,6 +32,7 @@ class MwaaStack(Stack):
         dags_dir: str,
         config_dir: str,
         s3_prefix: str = "",
+        invokable_functions: tuple[lambda_.IFunction, ...] = (),
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -79,6 +81,9 @@ class MwaaStack(Stack):
         )
         mwaa_bucket.grant_read(role)
         data_lake_bucket.grant_read_write(role)
+        # Lambdas that DAG tasks invoke (e.g. the v2 extractor)
+        for function in invokable_functions:
+            function.grant_invoke(role)
         role.add_to_policy(
             iam.PolicyStatement(
                 actions=["airflow:PublishMetrics"],

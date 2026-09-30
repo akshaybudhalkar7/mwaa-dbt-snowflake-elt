@@ -222,3 +222,6 @@ cdk.out/
 
 # dbt local files
 .user.yml
+
+# Lambda code folders built at cdk synth (infra/stacks/lambda_build.py)
+infra/.lambda_build/
