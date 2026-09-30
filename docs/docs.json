@@ -1,0 +1,31 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Insurance ELT",
+  "description": "Watermark-driven ELT on AWS MWAA, Snowflake and dbt",
+  "colors": {
+    "primary": "#0E7490",
+    "light": "#22D3EE",
+    "dark": "#0E7490"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Overview",
+        "pages": ["index"]
+      },
+      {
+        "group": "Design",
+        "pages": ["architecture", "history-capture", "data-model"]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/akshaybudhalkar7/mwaa-dbt-snowflake-elt"
+      }
+    ]
+  }
+}
